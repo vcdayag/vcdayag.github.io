@@ -1,0 +1,731 @@
+<!doctype html>
+<html>
+
+<head>
+  <title>WebGL Demo</title>
+  <style>
+    #controls {
+      position: absolute;
+      left: 380px;
+      top: 8px;
+      width: auto;
+    }
+
+    .grouping {
+      border: 1px solid black;
+      padding: 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="canvasContainer"></div>
+  <br>
+  <div id="controls">
+    <div class="grouping">
+
+      <button id="cameraReset">Reset Camera</button>
+      <div id="camera_labels"></div>
+      <br>
+      eye point Y <input type="range" class="camera_sliders" id="eye_pointX"> | eye point Y <input type="range"
+        class="camera_sliders" id="eye_pointY"> | eye point Z
+      <input type="range" class="camera_sliders" id="eye_pointZ">
+      <br>
+      viewpoint X <input type="range" class="camera_sliders" id="viewpointX"> | viewpoint Y <input type="range"
+        class="camera_sliders" id="viewpointY"> | viewpoint Z
+      <input type="range" class="camera_sliders" id="viewpointZ">
+      <br>
+      up X <input type="range" class="camera_sliders" id="upX"> | up Y <input type="range" class="camera_sliders"
+        id="upY">
+      | up Z <input type="range" class="camera_sliders" id="upZ">
+    </div>
+    <br>
+    <div class="grouping">
+      <input type="radio" name="projection" value="perspective"> Perspective |
+      <input type="radio" name="projection" value="parallel" checked> Parallel
+      <br>
+      <div id="projection_labels"></div>
+      left <input type="range" class="projection_sliders" id="left"> | right <input type="range"
+        class="projection_sliders" id="right">
+      <br>
+      bottom <input type="range" class="projection_sliders" id="bottom"> | top <input type="range"
+        class="projection_sliders" id="top">
+      <br>
+      near <input type="range" class="projection_sliders" id="near"> | far <input type="range"
+        class="projection_sliders" id="far">
+    </div>
+    <br>
+    <div class="grouping">
+      CUBE TRANSLATION
+      <br>
+      x <input type="range" class="object" id="x_object">
+      y <input type="range" class="object" id="y_object">
+      z <input type="range" class="object" id="z_object">
+    </div>
+    <br>
+    <div class="grouping">
+      BLENDING
+      <br>
+      srcRGB <select class="blendingDropDown" id="ddSRC"></select>
+      <br>
+      dstRGB <select class="blendingDropDown" id="ddDST"></select>
+      <br>
+      blendEquation <select class="blendingDropDown" id="ddBlending"></select>
+      <br>
+      <input type="radio" name="colors" value="alphablending" checked> Alpha blending |
+      <input type="radio" name="colors" value="vary"> Varying colors
+      <br>
+      <input type="button" id="varycolors" value="Randomize Colors">
+    </div>
+    <br>
+    <!-- USER INTERFACE -->
+    <button id="translateX">MOVE X</button>
+    <button id="translateY">MOVE Y</button>
+    <button id="translate">MOVE</button>
+    <button id="scale">SCALE</button>
+    <button id="rotate">ROTATE</button>
+    <button id="rotatewithpoint">ROTATE WITH POINT</button>
+    <br>
+    X = <input type="text" id="tx" value="0">
+    Y = <input type="text" id="ty" value="0">
+    <br>
+    SCALE X by = <input type="text" id="Sx" value="1">
+    SCALE Y by = <input type="text" id="Sy" value="1">
+    <br>
+    theta = <input type="text" id="theta" value="0">
+    Px = <input type="text" id="Px" value="0">
+    Py = <input type="text" id="Py" value="0">
+
+  </div>
+
+  <!-- VERTEX SHADER -->
+  <script id="vertex-shader" type="notjs">#version 300 es
+    in vec4 a_position;
+    in float a_point_size;
+    uniform mat4 u_transformation_matrix;
+    uniform mat4 u_model_matrix;
+    uniform mat4 u_view_matrix;
+    uniform mat4 u_projection_matrix;
+
+    in vec4 a_color; //attribute vec4 a_color;
+    out vec4 v_color; //varying vec4 v_color;
+
+    void main() {
+    //Apply the transformations to the object to be rendered
+    gl_Position = u_projection_matrix * u_view_matrix * u_transformation_matrix * u_model_matrix * a_position;
+    gl_PointSize = a_point_size;
+
+    v_color = a_color;
+    }
+  </script>
+
+  <!-- FRAGMENT SHADER -->
+  <script id="fragment-shader" type="notjs">#version 300 es
+    precision mediump float;
+    in vec4 v_color; //Before, this was a uniform vec4 variable.
+    out vec4 outColor;
+    // uniform vec4 u_color;
+
+    void main(void) {
+      //outColor = vec4(1, 0, 0, 1); //red
+      outColor = v_color;
+    }
+    
+  </script>
+
+  <!-- Function for creating and compiling shader programs -->
+  <script>
+    function createShader(gl, type, sourceCode) {
+      // Compiles either a shader of type gl.VERTEX_SHADER or gl.FRAGMENT_SHADER
+      var shader = gl.createShader(type);
+      gl.shaderSource(shader, sourceCode);
+      gl.compileShader(shader);
+
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        var info = gl.getShaderInfoLog(shader);
+        throw 'Could not compile WebGL program. \n\n' + info;
+      }
+      return shader;
+    }
+  </script>
+
+  <!-- Main function contains: 
+    1) declaration of WebGL context
+    2) function calls to initialize the shader programs
+    3) declaration and binding of buffer object
+    4) function calls to perform transformations before drawing
+    5) draw/redraw functions
+  -->
+  <script src="gl-matrix.js"></script>
+  <script src="points.js"></script>
+  <script src="parakeet.js"></script>
+  <script>
+    function main() {
+      var canvas = document.createElement('canvas');
+      canvas.width = 360;
+      canvas.height = 360;
+      canvas.style = "background-color: rgba(0, 255, 255, 0.1);";
+      canvas.setAttribute("id", "output");
+      document.querySelector('#canvasContainer').appendChild(canvas);
+      if (!canvas) {
+        console.log("Canvas element with specified ID ('output') cannot be found.");
+      }
+      //const gl = initWebGL(canvas, true);
+      //Setting up the WebGL Context
+      const gl = canvas.getContext('webgl2');
+      const vertexShaderSource = document.querySelector('#vertex-shader').text;
+      const fragmentShaderSource = document.querySelector('#fragment-shader').text;
+      const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+      const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+      //Creation and initialization of GL program 
+      var program = gl.createProgram();
+
+      // Attach pre-existing shaders
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+
+      gl.linkProgram(program);
+
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        var info = gl.getProgramInfoLog(program);
+        throw 'Could not compile WebGL program. \n\n' + info;
+      }
+
+      // set the program created earlier
+      gl.useProgram(program);
+
+      // Declaration of pointers to the attributes
+      const aPositionPointer = gl.getAttribLocation(program, 'a_position');
+      const aPointSizePointer = gl.getAttribLocation(program, 'a_point_size');
+      const colorLocation = gl.getAttribLocation(program, "a_color");
+      // var colorLocation = gl.getUniformLocation(program, "u_color");
+
+      //Used for affine transformation
+      const uTransformationMatrixPointer = gl.getUniformLocation(program, 'u_transformation_matrix');
+      //Initializing the variables and tranformation matrix
+      let transformationMatrix = [
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+      ];
+
+      function movePoints(invertices, movement) {
+        var vertices = [...invertices];
+        for (let index = 2; index < vertices.length; index += 4) {
+          vertices[index] += movement;
+        }
+        return vertices;
+      }
+
+      function sides(verticestop, verticesbottom) {
+        mergedvertices = [];
+        for (let index = 0; index < verticestop.length / 4; index++) {
+          offset = 4;
+          start = index * offset;
+          end = (index + 3) * offset;
+          mergedvertices.push(...verticestop.slice(start, end));
+          mergedvertices.push(...verticesbottom.slice(start, end));
+        }
+
+        outputvertices = []
+        for (let index = 0; index < mergedvertices.length / 4; index++) {
+          offset = 4;
+          start = index * offset;
+          end = (index + 3) * offset;
+          outputvertices.push(...mergedvertices.slice(start, end));
+        }
+        return outputvertices;
+      }
+
+      // colors
+      const RED = [1, 0, 0, 1];
+      const GREEN = [0, 1, 0, 1];
+      const BLUE = [0, 0, 1, 1];
+
+      const PARAKEET_PARTS_TOP = [
+        [head_blue, gl.TRIANGLE_FAN, BLUE],
+        [green_patch, gl.TRIANGLE_FAN, [1, 0.5, 0, 1]],
+        [beak_top, gl.TRIANGLE_FAN, RED],
+        [beak_bottom, gl.TRIANGLE_FAN, RED],
+        [body_green, gl.TRIANGLE_FAN, GREEN],
+        [body_red, gl.TRIANGLE_FAN, RED],
+        [outer_eye, gl.TRIANGLE_FAN, GREEN],
+        [eye, gl.TRIANGLE_FAN, [0, 0, 0, 1]],
+      ]
+
+      const b_eye = movePoints(eye, -0.5);
+      const b_outer_eye = movePoints(outer_eye, -0.5);
+      const b_green_patch = movePoints(green_patch, -0.5);
+      const b_body_red = movePoints(body_red, -0.5);
+      const b_body_green = movePoints(body_green, -0.5);
+      const b_beak_bottom = movePoints(beak_bottom, -0.5);
+      const b_beak_top = movePoints(beak_top, -0.5);
+      const b_head_blue = movePoints(head_blue, -0.5);
+
+      const PARAKEET_PARTS_BOTTOM = [
+        [b_head_blue, gl.TRIANGLE_FAN, BLUE],
+        [b_green_patch, gl.TRIANGLE_FAN, [1, 0.5, 0, 1]],
+        [b_beak_top, gl.TRIANGLE_FAN, RED],
+        [b_beak_bottom, gl.TRIANGLE_FAN, RED],
+        [b_body_green, gl.TRIANGLE_FAN, GREEN],
+        [b_body_red, gl.TRIANGLE_FAN, RED],
+        [b_outer_eye, gl.TRIANGLE_FAN, GREEN],
+        [b_eye, gl.TRIANGLE_FAN, [0, 0, 0, 1]],
+      ]
+
+      // const s_eye = sides(eye, b_eye);
+      // const s_outer_eye = sides(outer_eye, b_outer_eye);
+      const s_green_patch = sides(green_patch, b_green_patch);
+      const s_body_red = sides(body_red, b_body_red);
+      const s_body_green = sides(body_green, b_body_green);
+      const s_beak_bottom = sides(beak_bottom, b_beak_bottom);
+      const s_beak_top = sides(beak_top, b_beak_top);
+      const s_head_blue = sides(head_blue, b_head_blue);
+
+      const PARAKEET_PARTS_SIDES = [
+        [s_green_patch, gl.TRIANGLES, [1, 0.5, 0, 1]],
+        [s_body_red, gl.TRIANGLES, [1, 0, 0, 1]],
+        [s_body_green, gl.TRIANGLES, [0, 1, 0, 1]],
+        [s_beak_bottom, gl.TRIANGLES, [1, 0, 0, 1]],
+        [s_beak_top, gl.TRIANGLES, [1, 0, 0, 1]],
+        [s_head_blue, gl.TRIANGLES, [0, 0, 1, 1]],
+      ]
+
+      // helper function to draw each part of the parakeet
+      const CONST_VIEWS = [0, 0, 0, 0, 0, -1, 0, 1, 0];
+      const CONST_PROJECTION_ARRAY = [-10, 10, -10, 10, -10, 10];
+
+      var VIEWS = CONST_VIEWS;
+      var PROJECTION_ARRAY = CONST_PROJECTION_ARRAY;
+      var PROJECTION_TYPE = "parallel";
+
+      const uModelMatrixPointer = gl.getUniformLocation(program, "u_model_matrix");
+      const uViewMatrixPointer = gl.getUniformLocation(program, "u_view_matrix");
+      const uProjectionMatrixPointer = gl.getUniformLocation(program, "u_projection_matrix");
+
+
+      var viewMatrix = glMatrix.mat4.create();
+      var modelMatrix = glMatrix.mat4.create();
+      var projectionMatrix = glMatrix.mat4.create();
+
+      var shouldVARYCOLORS = false;
+      var VARY_COLORS = [];
+
+      function drawParts(vertices, glmode, colors) {
+        var vertWithColors = [];
+        cnt = 0
+        for (let index = 0; index < vertices.length / 4; index++) {
+          offset = 4;
+          start = index * offset;
+          end = (index + 1) * offset;
+          vertWithColors.push(...vertices.slice(start, end));
+          if (shouldVARYCOLORS) {
+            vertWithColors.push(...VARY_COLORS[index]);
+            cnt += 1;
+          } else {
+            vertWithColors.push(...colors);
+          }
+        }
+
+        var viewMatrix = glMatrix.mat4.create();
+        glMatrix.mat4.lookAt(viewMatrix, VIEWS.slice(0, 3), VIEWS.slice(3, 6), VIEWS.slice(6, 9));
+        // var modelMatrix = glMatrix.mat4.create();
+        glMatrix.mat4.rotateX(modelMatrix, modelMatrix, Math.PI / 4);
+        // glMatrix.mat4.rotateY(modelMatrix, modelMatrix, Math.PI);
+        glMatrix.mat4.rotateZ(modelMatrix, modelMatrix, Math.PI / 4);
+
+        var projectionMatrix = glMatrix.mat4.create();
+        if (PROJECTION_TYPE == "parallel") {
+          glMatrix.mat4.ortho(projectionMatrix, ...PROJECTION_ARRAY);
+        } else {
+          fov = Math.PI / 1.25;
+          aspect = 1.5;
+          glMatrix.mat4.perspective(projectionMatrix, fov, aspect, Math.max(PROJECTION_ARRAY[4], 1), PROJECTION_ARRAY[5])
+        }
+
+        gl.vertexAttrib1f(aPointSizePointer, 10);
+
+        gl.uniformMatrix4fv(uModelMatrixPointer, false, new Float32Array(modelMatrix));
+        gl.uniformMatrix4fv(uViewMatrixPointer, false, new Float32Array(viewMatrix));
+        gl.uniformMatrix4fv(uProjectionMatrixPointer, false, new Float32Array(projectionMatrix));
+
+
+        var square1Buffer = gl.createBuffer();
+        gl.enableVertexAttribArray(aPositionPointer);
+        gl.enableVertexAttribArray(colorLocation);
+        gl.bindBuffer(gl.ARRAY_BUFFER, square1Buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertWithColors), gl.STATIC_DRAW);
+        gl.vertexAttribPointer(aPositionPointer, 4, gl.FLOAT, false, 8 * 4, 0);
+        gl.vertexAttribPointer(colorLocation, 4, gl.FLOAT, false, 8 * 4, 4 * 4);
+
+        var count = vertices.length / 4;
+        gl.drawArrays(glmode, 0, count);
+      }
+
+      // function to draw the scene from the user inputs
+      function drawScene(code) {
+        // clear the screen
+        gl.clearColor(0, 0, 0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        // gl.enable(gl.DEPTH_TEST);
+        gl.disable(gl.DEPTH_TEST);
+        gl.enable(gl.BLEND);
+
+        if (!shouldVARYCOLORS) {
+          // user input blending options
+          dst = document.getElementById("ddDST").value;
+          src = document.getElementById("ddSRC").value;
+          blendeq = document.getElementById("ddBlending").value;
+
+          gl.blendFunc(BLENDING_FUNCTIONS[src], BLENDING_FUNCTIONS[dst]);
+          gl.blendEquation(BLENDING_EQUATION[blendeq]);
+        }
+
+        // set values
+        gl.uniformMatrix4fv(uTransformationMatrixPointer, false, new Float32Array(transformationMatrix));
+
+        newcube = [];
+        for (let index = 0; index < Cubevertices.length; index++) {
+          for (let a = 0; a < Cubevertices[index].length; a++) {
+            newcube.push(Cubevertices[index][a] - .5);
+          }
+        }
+        modelMatrix = glMatrix.mat4.create();
+        glMatrix.mat4.scale(modelMatrix, modelMatrix, [.5, .5, .5]);
+
+        // get sliders for x,y,z of object
+        translatevec = []
+        document.querySelectorAll('.object').forEach(element => {
+          translatevec.push(parseFloat(element.value));
+        });
+        glMatrix.mat4.translate(modelMatrix, modelMatrix, translatevec);
+
+        glMatrix.mat4.translate(modelMatrix, modelMatrix, [-0.8, -0.25, 0]);
+        drawParts(newcube, gl.TRIANGLES, [0, 0.5, 0.5, 0.5]);
+
+        // draw buffer that is bound to gl.ARRAY_BUFFER
+        for (let index = 0; index < PARAKEET_PARTS_TOP.length; index++) {
+          modelMatrix = glMatrix.mat4.create();
+          glMatrix.mat4.scale(modelMatrix, modelMatrix, [5, 5, 5]);
+          drawParts(...PARAKEET_PARTS_TOP[index]);
+        }
+
+        for (let index = 0; index < PARAKEET_PARTS_BOTTOM.length; index++) {
+          modelMatrix = glMatrix.mat4.create();
+          glMatrix.mat4.scale(modelMatrix, modelMatrix, [5, 5, 5]);
+          drawParts(...PARAKEET_PARTS_BOTTOM[index]);
+        }
+
+        for (let index = 0; index < PARAKEET_PARTS_SIDES.length; index++) {
+          modelMatrix = glMatrix.mat4.create();
+          glMatrix.mat4.scale(modelMatrix, modelMatrix, [5, 5, 5]);
+          drawParts(...PARAKEET_PARTS_SIDES[index]);
+        }
+
+
+        console.log("Draw Scene");
+      }
+
+      // matrix multiplication implementation to be able to combine the affine transformations.
+      function matrixMultiplication(original, transformation) {
+        let output = new Array(16);
+        let len = 4;
+        for (let row = 0; row < 4; row++) {
+          for (let col = 0; col < 4; col++) {
+            let index = row * 4 + col;
+            output[index] = 0;
+            for (let item = 0; item < 4; item++) {
+              output[index] += original[row * 4 + item] * transformation[col + item * 4]
+            }
+          }
+        }
+        return output;
+      }
+
+      var tr_x = 0, tr_y = 0, Sx = 1, Sy = 1, Px = 0, Py = 0;
+      function redraw(code) {
+        return function () {
+          //Declaration and initialization of translation,scaling,rotation factors
+          if (code == "tx") {
+            // parse the amount of x for the translation
+            tr_x = parseFloat(document.getElementById("tx").value);
+            tr_y = 0;
+            var translationMatrix = [1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0,
+              tr_x, tr_y, 0, 1
+            ];
+            // do the transformation
+            transformationMatrix = matrixMultiplication(transformationMatrix, translationMatrix)
+          } else if (code == "ty") {
+            // parse the amount of y for the translation
+            tr_x = 0;
+            tr_y = parseFloat(document.getElementById("ty").value);
+            var translationMatrix = [1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0,
+              tr_x, tr_y, 0, 1
+            ];
+            // do the transformation
+            transformationMatrix = matrixMultiplication(transformationMatrix, translationMatrix)
+          } else if (code == "both") {
+            // parse the amount of x and y for the translation
+            tr_x = parseFloat(document.getElementById("tx").value);
+            tr_y = parseFloat(document.getElementById("ty").value);
+            var translationMatrix = [1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0,
+              tr_x, tr_y, 0, 1
+            ];
+            // do the transformation
+            transformationMatrix = matrixMultiplication(transformationMatrix, translationMatrix)
+          } else if (code == "scaled") {
+            // parse the inputs for the scaling factor for x and y
+            Sx = parseFloat((document.getElementById("Sx")).value);
+            Sy = parseFloat((document.getElementById("Sy")).value);
+            //Transformation matrix when scaling
+            var scalingMatrix = [
+              Sx, 0, 0, 0,
+              0, Sy, 0, 0,
+              0, 0, 1, 0,
+              0, 0, 0, 1
+            ];
+            // do the transformation
+            transformationMatrix = matrixMultiplication(transformationMatrix, scalingMatrix);
+          } else if (code == "rotate") {
+            // compute for the necessary cos and sin values
+            let degrees = parseFloat(document.getElementById("theta").value);
+            let radians = Math.PI * degrees / 180;
+            let cosValue = Math.cos(radians);
+            let sinValue = Math.sin(radians);
+            let rotationMatrix = [
+              cosValue, -sinValue, 0, 0,
+              sinValue, cosValue, 0, 0,
+              0, 0, 1, 0,
+              0, 0, 0, 1
+            ];
+            // do the transformation
+            transformationMatrix = matrixMultiplication(transformationMatrix, rotationMatrix);
+          } else if (code == "rotatewithpoint") {
+            // rotation around an arbitrary point
+            // compute for the necessary cos and sin values
+            let degrees = parseFloat(document.getElementById("theta").value);
+            let radians = Math.PI * degrees / 180;
+            let cosValue = Math.cos(radians);
+            let sinValue = Math.sin(radians);
+
+            // generate the translation matrix to be used
+            let rotationMatrix = [
+              cosValue, -sinValue, 0, 0,
+              sinValue, cosValue, 0, 0,
+              0, 0, 1, 0,
+              0, 0, 0, 1
+            ];
+
+            // parse the input coordinates of the arbitrary point.
+            Px = parseFloat((document.getElementById("Px")).value);
+            Py = parseFloat((document.getElementById("Py")).value);
+
+            // get the value of T
+            let Tx = -Px;
+            let Ty = -Py;
+            let translateT = [
+              1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0,
+              Tx, Ty, 0, 1
+            ];
+            // translate by T
+            transformationMatrix = matrixMultiplication(transformationMatrix, translateT);
+
+            // rotate
+            transformationMatrix = matrixMultiplication(transformationMatrix, rotationMatrix);
+
+            // generate the matrix of -T
+            let translatenegT = [
+              1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0,
+              -Tx, -Ty, 0, 1
+            ];
+            // translate by -T
+            transformationMatrix = matrixMultiplication(transformationMatrix, translatenegT);
+          } else if (code == "camera") {
+            var sliders = document.querySelectorAll(".camera_sliders");
+            VIEWS = []
+            var label = "| ";
+            sliders.forEach(element => {
+              VIEWS.push(parseFloat(element.value));
+              // console.log(VIEWS);
+              label += element.id + ": " + element.value + " | ";
+            });
+            document.getElementById("camera_labels").innerHTML = label;
+          } else if (code == "cameraReset") {
+            VIEWS = CONST_VIEWS;
+            const slidersID = ["eye_pointX", "eye_pointY", "eye_pointZ", "viewpointX", "viewpointY", "viewpointZ", "upX", "upY", "upZ"];
+            var label = "| ";
+            for (let index = 0; index < slidersID.length; index++) {
+              var element = document.getElementById(slidersID[index]);
+              element.value = VIEWS[index];
+              label += element.id + ": " + element.value + " | ";
+            }
+            document.getElementById("camera_labels").innerHTML = label;
+          } else if (code == "projection") {
+            PROJECTION_TYPE = document.querySelector('input[name="projection"]:checked').value;
+            PROJECTION_ARRAY = [];
+            var projectionlabel = "| ";
+            document.querySelectorAll('.projection_sliders').forEach(element => {
+              PROJECTION_ARRAY.push(parseFloat(element.value));
+              projectionlabel += element.id + ": " + element.value + " | ";
+            });
+            document.getElementById("projection_labels").innerHTML = projectionlabel;
+          } else if (code == "varycolors") {
+            COLOR_TYPE = document.querySelector('input[name="colors"]:checked').value;
+            if (COLOR_TYPE == "alphablending") {
+              shouldVARYCOLORS = false;
+            } else {
+              shouldVARYCOLORS = true;
+              VARY_COLORS = []
+
+              // generate randomize colors
+              for (let index = 0; index < 400; index++) {
+                color = []
+                for (let index = 0; index < 4; index++) {
+                  if (Math.random() < 0.5) {
+                    color.push(Math.random() / 2);
+                  } else {
+                    color.push(0);
+                  }
+                }
+                VARY_COLORS.push(color);
+                // console.log(color);
+              }
+            }
+          }
+
+          drawScene(code);
+        }
+      }
+
+      //Event listeners for user inputs for the transformations
+      document.getElementById("translateX").addEventListener("click", redraw("tx"));
+      document.getElementById("translateY").addEventListener("click", redraw("ty"));
+      document.getElementById("translate").addEventListener("click", redraw("both"));
+      document.getElementById("scale").addEventListener("click", redraw("scaled"));
+      document.getElementById("rotate").addEventListener("click", redraw("rotate"));
+      document.getElementById("rotatewithpoint").addEventListener("click", redraw("rotatewithpoint"));
+      document.getElementById("cameraReset").addEventListener("click", redraw("cameraReset"));
+
+      document.querySelectorAll('input[name="projection"]').forEach(element => {
+        element.addEventListener("click", redraw("projection"));
+      });
+
+      document.querySelectorAll('.object').forEach(element => {
+        element.addEventListener("input", redraw("object"));
+        element.min = -1;
+        element.max = 1;
+        element.step = .001;
+        element.value = 0;
+      });
+
+      document.querySelectorAll('.blendingDropDown').forEach(element => {
+        element.addEventListener("change", redraw("blending"));
+      });
+
+      document.querySelectorAll('input[name="colors"]').forEach(element => {
+        element.addEventListener("click", redraw("varycolors"));
+      });
+
+      document.getElementById("varycolors").addEventListener("click", redraw("varycolors"));
+
+      const BLENDING_FUNCTIONS = {
+        "ONE": gl.ONE,
+        "ZERO": gl.ZERO,
+        "SRC_COLOR": gl.SRC_COLOR,
+        "ONE_MINUS_SRC_COLOR": gl.ONE_MINUS_SRC_COLOR,
+        "DST_COLOR": gl.DST_COLOR,
+        "ONE_MINUS_DST_COLOR": gl.ONE_MINUS_DST_COLOR,
+        "SRC_ALPHA": gl.SRC_ALPHA,
+        "ONE_MINUS_SRC_ALPHA": gl.ONE_MINUS_SRC_ALPHA,
+        "DST_ALPHA": gl.DST_ALPHA,
+        "ONE_MINUS_DST_ALPHA": gl.ONE_MINUS_DST_ALPHA,
+        "CONSTANT_COLOR": gl.CONSTANT_COLOR,
+        "ONE_MINUS_CONSTANT_COLOR": gl.ONE_MINUS_CONSTANT_COLOR,
+        "CONSTANT_ALPHA": gl.CONSTANT_ALPHA,
+        "ONE_MINUS_CONSTANT_ALPHA": gl.ONE_MINUS_CONSTANT_ALPHA,
+        "SRC_ALPHA_SATURATE": gl.SRC_ALPHA_SATURATE,
+      }
+
+      const dropdownid = ["ddSRC", "ddDST"];
+      for (let index = 0; index < dropdownid.length; index++) {
+        const element = document.getElementById(dropdownid[index]);
+        for (const [key, value] of Object.entries(BLENDING_FUNCTIONS)) {
+          newOption = document.createElement('option');
+          newOption.value = key;
+          newOption.innerText = key;
+          element.appendChild(newOption);
+        }
+      }
+
+      const BLENDING_EQUATION = {
+        "FUNC_ADD": gl.FUNC_ADD,
+        "FUNC_SUBTRACT": gl.FUNC_SUBTRACT,
+      }
+
+      blendeq = document.getElementById("ddBlending");
+      for (const [key, value] of Object.entries(BLENDING_EQUATION)) {
+        newOption = document.createElement('option');
+        newOption.value = key;
+        newOption.innerText = key;
+        blendeq.appendChild(newOption);
+      }
+
+      PROJECTION_ARRAY = CONST_PROJECTION_ARRAY;
+      const PROJECTION_SLIDERS = document.querySelectorAll('.projection_sliders');
+      var projectionlabel = "| ";
+      for (let index = 0; index < PROJECTION_SLIDERS.length; index++) {
+        var element = PROJECTION_SLIDERS[index];
+        element.addEventListener("input", redraw("projection"));
+        element.min = -20;
+        element.max = 20;
+        element.step = 0.01;
+        element.value = PROJECTION_ARRAY[index];
+        projectionlabel += element.id + ": " + element.value + " | ";
+      }
+      document.getElementById("projection_labels").innerHTML = projectionlabel;
+
+      // SLIDERS
+      const slidersID = ["eye_pointX", "eye_pointY", "eye_pointZ", "viewpointX", "viewpointY", "viewpointZ", "upX", "upY", "upZ"];
+      slidersID.forEach(element => {
+        document.getElementById(element).addEventListener("input", redraw("camera"));
+      });
+      var sliders = document.querySelectorAll(".camera_sliders");
+      var label = "| ";
+      for (let index = 0; index < sliders.length; index++) {
+        const element = sliders[index];
+        if (element.id.includes("up")) {
+          element.min = -10;
+          element.max = 10;
+          element.step = .01;
+
+        } else {
+          element.min = -5;
+          element.max = 5;
+          element.step = .01;
+        }
+        element.value = VIEWS[index];
+        label += element.id + ": " + element.value + " | ";
+      }
+      document.getElementById("camera_labels").innerHTML = label;
+
+      // initial render
+      drawScene();
+    }
+    // call the main program
+    main();
+  </script>
+</body>
+
+</html>
