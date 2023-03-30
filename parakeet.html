@@ -4,6 +4,10 @@
 <head>
   <title>WebGL Demo</title>
   <style>
+    * {
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
     #controls {
       position: absolute;
       left: 380px;
@@ -23,7 +27,22 @@
   <br>
   <div id="controls">
     <div class="grouping">
-
+      BLENDING
+      <br>
+      srcRGB: <select class="blendingDropDown" id="ddSRC"></select> | dstRGB: <select class="blendingDropDown"
+        id="ddDST"></select>
+      <br>
+      blendEquation <select class="blendingDropDown" id="ddBlending"></select>
+      <br>
+      <input type="radio" name="colors" value="alphablending" checked> Alpha blending |
+      <input type="radio" name="colors" value="vary"> Varying colors
+      <br>
+      <input type="button" id="varycolors" value="Randomize Colors">
+    </div>
+    <br>
+    <div class="grouping">
+      VIEW
+      <br>
       <button id="cameraReset">Reset Camera</button>
       <div id="camera_labels"></div>
       <br>
@@ -41,6 +60,8 @@
     </div>
     <br>
     <div class="grouping">
+      PROJECTION
+      <br>
       <input type="radio" name="projection" value="perspective"> Perspective |
       <input type="radio" name="projection" value="parallel" checked> Parallel
       <br>
@@ -64,38 +85,26 @@
     </div>
     <br>
     <div class="grouping">
-      BLENDING
+      MODEL AFFINE TRANSFORMATIONS
       <br>
-      srcRGB <select class="blendingDropDown" id="ddSRC"></select>
+      <!-- USER INTERFACE -->
+      <button id="translateX">MOVE X</button>
+      <button id="translateY">MOVE Y</button>
+      <button id="translate">MOVE</button>
+      <button id="scale">SCALE</button>
+      <button id="rotate">ROTATE</button>
+      <button id="rotatewithpoint">ROTATE WITH POINT</button>
       <br>
-      dstRGB <select class="blendingDropDown" id="ddDST"></select>
+      X = <input type="text" id="tx" value="0">
+      Y = <input type="text" id="ty" value="0">
       <br>
-      blendEquation <select class="blendingDropDown" id="ddBlending"></select>
+      SCALE X by = <input type="text" id="Sx" value="1">
+      SCALE Y by = <input type="text" id="Sy" value="1">
       <br>
-      <input type="radio" name="colors" value="alphablending" checked> Alpha blending |
-      <input type="radio" name="colors" value="vary"> Varying colors
-      <br>
-      <input type="button" id="varycolors" value="Randomize Colors">
+      theta = <input type="text" id="theta" value="0">
+      Px = <input type="text" id="Px" value="0">
+      Py = <input type="text" id="Py" value="0">
     </div>
-    <br>
-    <!-- USER INTERFACE -->
-    <button id="translateX">MOVE X</button>
-    <button id="translateY">MOVE Y</button>
-    <button id="translate">MOVE</button>
-    <button id="scale">SCALE</button>
-    <button id="rotate">ROTATE</button>
-    <button id="rotatewithpoint">ROTATE WITH POINT</button>
-    <br>
-    X = <input type="text" id="tx" value="0">
-    Y = <input type="text" id="ty" value="0">
-    <br>
-    SCALE X by = <input type="text" id="Sx" value="1">
-    SCALE Y by = <input type="text" id="Sy" value="1">
-    <br>
-    theta = <input type="text" id="theta" value="0">
-    Px = <input type="text" id="Px" value="0">
-    Py = <input type="text" id="Py" value="0">
-
   </div>
 
   <!-- VERTEX SHADER -->
@@ -112,7 +121,7 @@
 
     void main() {
     //Apply the transformations to the object to be rendered
-    gl_Position = u_projection_matrix * u_view_matrix * u_transformation_matrix * u_model_matrix * a_position;
+    gl_Position = u_projection_matrix * u_transformation_matrix * u_view_matrix *  u_model_matrix * a_position;
     gl_PointSize = a_point_size;
 
     v_color = a_color;
@@ -315,15 +324,14 @@
 
       function drawParts(vertices, glmode, colors) {
         var vertWithColors = [];
-        cnt = 0
         for (let index = 0; index < vertices.length / 4; index++) {
           offset = 4;
           start = index * offset;
           end = (index + 1) * offset;
           vertWithColors.push(...vertices.slice(start, end));
+          // check if varying colors options is enabled
           if (shouldVARYCOLORS) {
             vertWithColors.push(...VARY_COLORS[index]);
-            cnt += 1;
           } else {
             vertWithColors.push(...colors);
           }
@@ -401,8 +409,7 @@
           translatevec.push(parseFloat(element.value));
         });
         glMatrix.mat4.translate(modelMatrix, modelMatrix, translatevec);
-
-        glMatrix.mat4.translate(modelMatrix, modelMatrix, [-0.8, -0.25, 0]);
+        glMatrix.mat4.translate(modelMatrix, modelMatrix, [-8, 0, 0]);
         drawParts(newcube, gl.TRIANGLES, [0, 0.5, 0.5, 0.5]);
 
         // draw buffer that is bound to gl.ARRAY_BUFFER
@@ -624,8 +631,8 @@
 
       document.querySelectorAll('.object').forEach(element => {
         element.addEventListener("input", redraw("object"));
-        element.min = -1;
-        element.max = 1;
+        element.min = -10;
+        element.max = 20;
         element.step = .001;
         element.value = 0;
       });
@@ -682,6 +689,7 @@
         blendeq.appendChild(newOption);
       }
 
+      // projection sliders
       PROJECTION_ARRAY = CONST_PROJECTION_ARRAY;
       const PROJECTION_SLIDERS = document.querySelectorAll('.projection_sliders');
       var projectionlabel = "| ";
@@ -696,7 +704,7 @@
       }
       document.getElementById("projection_labels").innerHTML = projectionlabel;
 
-      // SLIDERS
+      // View/camera SLIDERS
       const slidersID = ["eye_pointX", "eye_pointY", "eye_pointZ", "viewpointX", "viewpointY", "viewpointZ", "upX", "upY", "upZ"];
       slidersID.forEach(element => {
         document.getElementById(element).addEventListener("input", redraw("camera"));
